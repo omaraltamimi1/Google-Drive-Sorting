@@ -122,7 +122,7 @@ export function SignInScreen({
             {error && (
               <div
                 role="alert"
-                className="mt-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900/70 dark:bg-red-950/50 dark:text-red-200"
+                className="mt-5 whitespace-pre-line rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm leading-relaxed text-red-800 dark:border-red-900/70 dark:bg-red-950/50 dark:text-red-200"
               >
                 {error}
               </div>
