@@ -1,0 +1,6 @@
+{
+  "name": "مُنظِّم درايف — Drive Organizer",
+  "description": "أداة احترافية لترتيب وتصنيف ملفات Google Drive وتنظيف التكرارات وإدارة المجلدات بسهولة وأمان.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
