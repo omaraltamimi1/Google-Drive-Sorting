@@ -1,4 +1,9 @@
-import type { DriveFile, DriveQuota, DriveUser } from '../types/drive';
+import type {
+  DriveFile,
+  DrivePermission,
+  DriveQuota,
+  DriveUser,
+} from '../types/drive';
 
 const DRIVE_API_BASE = 'https://www.googleapis.com/drive/v3';
 export const FOLDER_MIME_TYPE = 'application/vnd.google-apps.folder';
@@ -55,6 +60,7 @@ export async function fetchDriveAccountAndFiles(
   quota: DriveQuota;
   rootFolderId: string;
   files: DriveFile[];
+  trashedFiles: DriveFile[];
 }> {
   const [aboutData, rootData] = await Promise.all([
     driveFetch<{ user: DriveUser; storageQuota: DriveQuota }>(
@@ -76,7 +82,7 @@ export async function fetchDriveAccountAndFiles(
       pageSize: '1000',
       q: 'trashed = false',
       fields:
-        'nextPageToken,files(id,name,mimeType,size,modifiedTime,createdTime,parents,webViewLink,starred,ownedByMe,md5Checksum,shared,capabilities(canMoveItemWithinDrive,canRename,canTrash,canDelete))',
+        'nextPageToken,files(id,name,mimeType,size,modifiedTime,createdTime,parents,webViewLink,starred,ownedByMe,md5Checksum,shared,permissions(id,type,role,emailAddress,domain,displayName,deleted),capabilities(canMoveItemWithinDrive,canRename,canTrash,canDelete))',
       orderBy: 'folder,modifiedTime desc',
     });
     if (pageToken) {
@@ -105,11 +111,50 @@ export async function fetchDriveAccountAndFiles(
     }
   } while (pageToken);
 
+  const trashedById = new Map<string, DriveFile>();
+  let trashPageToken: string | undefined = undefined;
+  const seenTrashTokens = new Set<string>();
+
+  do {
+    const trashParams = new URLSearchParams({
+      pageSize: '1000',
+      q: "trashed = true and 'me' in owners",
+      fields: 'nextPageToken,files(id,name,mimeType,size,modifiedTime,ownedByMe)',
+    });
+    if (trashPageToken) {
+      trashParams.set('pageToken', trashPageToken);
+    }
+
+    const trashPage = await driveFetch<{
+      nextPageToken?: string;
+      files?: DriveFile[];
+    }>(`${DRIVE_API_BASE}/files?${trashParams.toString()}`, accessToken);
+
+    if (trashPage.files && trashPage.files.length > 0) {
+      for (const file of trashPage.files) {
+        if (file?.id) {
+          trashedById.set(file.id, file);
+        }
+      }
+    }
+
+    if (
+      trashPage.nextPageToken &&
+      !seenTrashTokens.has(trashPage.nextPageToken)
+    ) {
+      seenTrashTokens.add(trashPage.nextPageToken);
+      trashPageToken = trashPage.nextPageToken;
+    } else {
+      trashPageToken = undefined;
+    }
+  } while (trashPageToken);
+
   return {
     user: aboutData.user ?? {},
     quota: aboutData.storageQuota ?? {},
     rootFolderId: rootData.id,
     files: Array.from(filesById.values()),
+    trashedFiles: Array.from(trashedById.values()),
   };
 }
 
@@ -277,6 +322,41 @@ export async function fetchDriveMediaBlobUrl(
 
   const blob = await response.blob();
   return URL.createObjectURL(blob);
+}
+
+export async function emptyDriveTrash(accessToken: string): Promise<void> {
+  await driveFetch<void>(`${DRIVE_API_BASE}/files/trash`, accessToken, {
+    method: 'DELETE',
+  });
+}
+
+export async function fetchFilePermissions(
+  accessToken: string,
+  fileId: string
+): Promise<DrivePermission[]> {
+  const params = new URLSearchParams({
+    fields: 'permissions(id,type,role,emailAddress,domain,displayName,deleted)',
+    supportsAllDrives: 'true',
+  });
+  const res = await driveFetch<{ permissions?: DrivePermission[] }>(
+    `${DRIVE_API_BASE}/files/${encodeURIComponent(fileId)}/permissions?${params.toString()}`,
+    accessToken
+  );
+  return res.permissions ?? [];
+}
+
+export async function deleteDrivePermission(
+  accessToken: string,
+  fileId: string,
+  permissionId: string
+): Promise<void> {
+  await driveFetch<void>(
+    `${DRIVE_API_BASE}/files/${encodeURIComponent(fileId)}/permissions/${encodeURIComponent(permissionId)}?supportsAllDrives=true`,
+    accessToken,
+    {
+      method: 'DELETE',
+    }
+  );
 }
 
 

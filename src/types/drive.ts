@@ -18,6 +18,22 @@ export type TopicCategoryId =
   | 'media-screenshots'
   | 'archive-misc';
 
+export interface DrivePermission {
+  id: string;
+  type: 'user' | 'group' | 'domain' | 'anyone';
+  role:
+    | 'owner'
+    | 'organizer'
+    | 'fileOrganizer'
+    | 'writer'
+    | 'commenter'
+    | 'reader';
+  emailAddress?: string;
+  domain?: string;
+  displayName?: string;
+  deleted?: boolean;
+}
+
 export interface DriveFile {
   id: string;
   name: string;
@@ -31,6 +47,7 @@ export interface DriveFile {
   ownedByMe?: boolean;
   md5Checksum?: string;
   shared?: boolean;
+  permissions?: DrivePermission[];
   capabilities?: {
     canMoveItemWithinDrive?: boolean;
     canRename?: boolean;

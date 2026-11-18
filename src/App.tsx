@@ -80,6 +80,7 @@ export default function App() {
   const [quota, setQuota] = useState<DriveQuota>({});
   const [rootFolderId, setRootFolderId] = useState<string>('root');
   const [files, setFiles] = useState<DriveFile[]>([]);
+  const [trashedFiles, setTrashedFiles] = useState<DriveFile[]>([]);
 
   const [confirmationRequest, setConfirmationRequest] =
     useState<ConfirmationRequest | null>(null);
@@ -103,6 +104,7 @@ export default function App() {
       setQuota(data.quota);
       setRootFolderId(data.rootFolderId);
       setFiles(data.files);
+      setTrashedFiles(data.trashedFiles);
     } catch (err) {
       if (err instanceof DriveAuthExpiredError) {
         setNeedsAuth(true);
@@ -154,6 +156,7 @@ export default function App() {
   const handleLogout = async () => {
     await logout();
     setFiles([]);
+    setTrashedFiles([]);
     setDriveUser({});
     setQuota({});
     setNeedsAuth(true);
@@ -389,9 +392,15 @@ export default function App() {
               {activeTab === 'overview' && (
                 <OverviewView
                   files={files}
+                  trashedFiles={trashedFiles}
                   quota={quota}
                   rootFolderId={rootFolderId}
+                  userEmail={displayEmail}
                   isDark={isDark}
+                  getValidToken={getValidToken}
+                  requestConfirmation={(req) => setConfirmationRequest(req)}
+                  onSyncComplete={() => loadDriveData()}
+                  onError={(msg) => setDriveError(msg)}
                   onNavigate={(tab) => setActiveTab(tab)}
                 />
               )}

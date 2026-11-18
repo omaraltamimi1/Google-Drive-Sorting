@@ -7,6 +7,7 @@ import {
   Maximize2,
   Pencil,
   Search,
+  Sparkles,
   Trash2,
   X,
 } from 'lucide-react';
@@ -29,6 +30,7 @@ import {
 } from '../lib/driveApi';
 import { FileTypeIcon } from './FileTypeIcon';
 import { MediaLightboxModal } from './MediaLightboxModal';
+import { BatchRenameModal, type BatchRenameItem } from './BatchRenameModal';
 
 interface FileExplorerViewProps {
   files: DriveFile[];
@@ -59,11 +61,12 @@ export function FileExplorerView({
   const [sortAsc, setSortAsc] = useState(true);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  // Modals for user input (Create Folder, Rename, Move Destination, Media Lightbox)
+  // Modals for user input (Create Folder, Rename, Batch Rename, Move Destination, Media Lightbox)
   const [newFolderModalOpen, setNewFolderModalOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
   const [renameTarget, setRenameTarget] = useState<DriveFile | null>(null);
   const [renameValue, setRenameValue] = useState('');
+  const [batchRenameOpen, setBatchRenameOpen] = useState(false);
   const [moveModalOpen, setMoveModalOpen] = useState(false);
   const [moveTargetFolderId, setMoveTargetFolderId] = useState(rootFolderId);
   const [previewFile, setPreviewFile] = useState<DriveFile | null>(null);
@@ -255,6 +258,55 @@ export function FileExplorerView({
           await onSyncComplete();
         } catch (err) {
           onError(err instanceof Error ? err.message : 'تعذر إعادة التسمية');
+        }
+      },
+    });
+  };
+
+  const handleBatchRenameSubmit = (items: BatchRenameItem[]) => {
+    setBatchRenameOpen(false);
+    if (items.length === 0) return;
+
+    requestConfirmation({
+      title: 'تأكيد إعادة التسمية الجماعية',
+      description: `سيتم تطبيق نمط التسمية الجديد وتغيير أسماء ${items.length} عنصر في Google Drive.`,
+      confirmLabel: `تطبيق التسمية (${items.length})`,
+      variant: 'primary',
+      itemsPreview: items.map((item) => `${item.file.name} ← ${item.newName}`),
+      totalCount: items.length,
+      onConfirm: async () => {
+        try {
+          const token = await getValidToken();
+          const failedNames: string[] = [];
+          const chunkSize = 4;
+
+          for (let i = 0; i < items.length; i += chunkSize) {
+            const chunk = items.slice(i, i + chunkSize);
+            await Promise.all(
+              chunk.map(async (item) => {
+                try {
+                  await renameDriveFile(token, item.file.id, item.newName);
+                } catch {
+                  failedNames.push(item.file.name);
+                }
+              })
+            );
+          }
+
+          setSelectedIds(new Set());
+          await onSyncComplete();
+
+          if (failedNames.length > 0) {
+            onError(
+              `تعذر إعادة تسمية ${failedNames.length} عنصر (تحقق من الصلاحيات): ${failedNames.join('، ')}`
+            );
+          }
+        } catch (err) {
+          onError(
+            err instanceof Error
+              ? err.message
+              : 'حدث خطأ أثناء إعادة التسمية الجماعية'
+          );
         }
       },
     });
@@ -514,6 +566,17 @@ export function FileExplorerView({
                 <span>إعادة تسمية</span>
               </button>
             )}
+
+            <button
+              type="button"
+              onClick={() => setBatchRenameOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-1.5 text-xs font-semibold text-slate-800 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700 whitespace-nowrap shrink-0"
+            >
+              <Sparkles className="h-3.5 w-3.5 text-blue-700 dark:text-blue-400" aria-hidden="true" />
+              <span>
+                {selectedFiles.length > 1 ? 'إعادة تسمية جماعية' : 'تسمية بالأنماط'}
+              </span>
+            </button>
 
             <button
               type="button"
@@ -903,6 +966,14 @@ export function FileExplorerView({
           </form>
         </div>
       )}
+
+      {/* Batch Pattern Renaming Dialog */}
+      <BatchRenameModal
+        isOpen={batchRenameOpen}
+        selectedFiles={selectedFiles}
+        onClose={() => setBatchRenameOpen(false)}
+        onSubmitBatch={handleBatchRenameSubmit}
+      />
 
       {/* Fullscreen Zoomable Image & Video Lightbox */}
       <MediaLightboxModal

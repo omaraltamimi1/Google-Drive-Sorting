@@ -1,5 +1,19 @@
-import { ArrowUpLeft, FolderOpen, HardDrive, Layers, Sparkles } from 'lucide-react';
-import type { DriveFile, DriveQuota, FileCategoryId } from '../types/drive';
+import {
+  ArrowUpLeft,
+  CheckCircle2,
+  ExternalLink,
+  FolderOpen,
+  HardDrive,
+  Layers,
+  Sparkles,
+  Trash2,
+} from 'lucide-react';
+import type {
+  ConfirmationRequest,
+  DriveFile,
+  DriveQuota,
+  FileCategoryId,
+} from '../types/drive';
 import {
   CATEGORY_DEFINITIONS,
   findDuplicateGroups,
@@ -9,22 +23,36 @@ import {
   isFolder,
   isInRoot,
 } from '../lib/organizer';
+import { emptyDriveTrash } from '../lib/driveApi';
 
 import { StorageSummary } from './StorageSummary';
+import { ExternalSharingAudit } from './ExternalSharingAudit';
 
 interface OverviewViewProps {
   files: DriveFile[];
+  trashedFiles: DriveFile[];
   quota: DriveQuota;
   rootFolderId: string;
+  userEmail: string;
   isDark: boolean;
+  getValidToken: () => Promise<string>;
+  requestConfirmation: (req: ConfirmationRequest) => void;
+  onSyncComplete: () => Promise<void>;
+  onError: (msg: string) => void;
   onNavigate: (tab: 'organize' | 'explorer' | 'cleanup') => void;
 }
 
 export function OverviewView({
   files,
+  trashedFiles,
   quota,
   rootFolderId,
+  userEmail,
   isDark,
+  getValidToken,
+  requestConfirmation,
+  onSyncComplete,
+  onError,
   onNavigate,
 }: OverviewViewProps) {
   const nonFolders = files.filter((f) => !isFolder(f));
@@ -71,6 +99,44 @@ export function OverviewView({
     (sum, g) => sum + (g.files.length - 1),
     0
   );
+
+  const quotaTrashBytes = Number(quota.usageInDriveTrash || 0);
+  const measuredTrashBytes = trashedFiles.reduce(
+    (sum, f) => sum + Number(f.size || 0),
+    0
+  );
+  const trashBytes = Math.max(quotaTrashBytes, measuredTrashBytes);
+  const trashPercent =
+    limitBytes > 0 ? Math.min(100, (trashBytes / limitBytes) * 100) : 0;
+  const hasTrashItems = trashBytes > 0 || trashedFiles.length > 0;
+
+  const handleEmptyTrash = () => {
+    if (!hasTrashItems) return;
+    requestConfirmation({
+      title: 'تأكيد إفراغ سلة مهملات Google Drive نهائياً',
+      description: `سيتم حذف جميع العناصر الموجودة في سلة المهملات (${trashedFiles.length.toLocaleString('en-US')} عنصر بمساحة ${formatBytes(trashBytes)}) بشكل نهائي لتحرير المساحة، ولا يمكن استعادتها بعد التنفيذ.`,
+      confirmLabel: `إفراغ السلة نهائياً (${formatBytes(trashBytes)})`,
+      variant: 'danger',
+      itemsPreview:
+        trashedFiles.length > 0
+          ? trashedFiles.map((f) => f.name)
+          : [`إجمالي المساحة في السلة: ${formatBytes(trashBytes)}`],
+      totalCount: trashedFiles.length > 0 ? trashedFiles.length : 1,
+      onConfirm: async () => {
+        try {
+          const token = await getValidToken();
+          await emptyDriveTrash(token);
+          await onSyncComplete();
+        } catch (err) {
+          onError(
+            err instanceof Error
+              ? err.message
+              : 'تعذر إفراغ سلة مهملات Google Drive.'
+          );
+        }
+      },
+    });
+  };
 
   return (
     <div className="space-y-6">
@@ -208,6 +274,101 @@ export function OverviewView({
           <ArrowUpLeft className="h-4 w-4 shrink-0 text-slate-400 dark:text-slate-500" aria-hidden="true" />
         </button>
       </div>
+
+      {/* Google Drive Trash Size & Quick Empty Suggestion */}
+      <section
+        aria-labelledby="drive-trash-heading"
+        className="rounded-xl border border-slate-200 bg-white p-6 dark:border-slate-800 dark:bg-slate-900"
+      >
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-start gap-3.5">
+            {hasTrashItems ? (
+              <Trash2
+                className="mt-0.5 h-5 w-5 shrink-0 text-red-600 dark:text-red-400"
+                aria-hidden="true"
+              />
+            ) : (
+              <CheckCircle2
+                className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400"
+                aria-hidden="true"
+              />
+            )}
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2
+                  id="drive-trash-heading"
+                  className="font-display text-base font-bold text-slate-900 dark:text-slate-100"
+                >
+                  سلة مهملات Google Drive
+                </h2>
+                <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
+                  {hasTrashItems ? (
+                    <>
+                      <span aria-hidden="true">·</span>{' '}
+                      <span className="font-mono font-semibold text-red-700 dark:text-red-400">
+                        {formatBytes(trashBytes)}
+                      </span>{' '}
+                      <span aria-hidden="true">·</span>{' '}
+                      <span>
+                        {trashedFiles.length.toLocaleString('en-US')} عنصر في السلة
+                      </span>
+                      {limitBytes > 0 && trashBytes > 0 && (
+                        <>
+                          {' '}
+                          <span aria-hidden="true">·</span>{' '}
+                          <span>{trashPercent.toFixed(1)}% من السعة الكلية</span>
+                        </>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <span aria-hidden="true">·</span> فارغة (0 B)
+                    </>
+                  )}
+                </span>
+              </div>
+
+              <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">
+                {hasTrashItems
+                  ? `اقتراح لتوفير المساحة: إفراغ سلة المهملات الآن سيحرّر ${formatBytes(trashBytes)} من مساحة التخزين فوراً.`
+                  : 'سلة المهملات فارغة حالياً ولا تستهلك أي مساحة من حصتك في Google Drive.'}
+              </p>
+            </div>
+          </div>
+
+          {hasTrashItems && (
+            <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+              <a
+                href="https://drive.google.com/drive/trash"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 whitespace-nowrap shrink-0"
+              >
+                <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                <span>مراجعة السلة في Drive</span>
+              </a>
+              <button
+                type="button"
+                onClick={handleEmptyTrash}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-red-700 focus-visible:outline-2 focus-visible:outline-red-600 dark:bg-red-600 dark:hover:bg-red-500 whitespace-nowrap shrink-0"
+              >
+                <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                <span>إفراغ السلة وتوفير {formatBytes(trashBytes)}</span>
+              </button>
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* External Sharing Quick Audit (Top 5 Sensitive Files) */}
+      <ExternalSharingAudit
+        files={files}
+        userEmail={userEmail}
+        getValidToken={getValidToken}
+        requestConfirmation={requestConfirmation}
+        onSyncComplete={onSyncComplete}
+        onError={onError}
+      />
 
       {/* Category Distribution Data Table */}
       <div className="rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
